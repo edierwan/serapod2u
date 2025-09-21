@@ -15,7 +15,7 @@ End-to-end platform to track products (Manufacturer → Warehouse → Distributo
 ## Development Setup
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/edierwan/serapod2u.git
 cd serapod2u
 npm install
 npm run dev
