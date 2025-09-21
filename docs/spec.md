@@ -1,8 +1,8 @@
 
-# 📄 `/docs/spec.md` (fresh, consolidated)
+# 📄 `/docs/spec.md` (fresh consolidated spec)
 
 ```markdown
-# Serapod2u — Functional Specification (v1.2 fresh)
+# Serapod2u — Functional Specification (v1.3 fresh)
 
 Single source of truth for the new repo + new Supabase project.
 
@@ -18,25 +18,34 @@ Single source of truth for the new repo + new Supabase project.
 
 ---
 
-## 2) Auth, Routing & Dev Fast Login
+## 2) Auth, Routing, Header UI & Fast Login
 
 ### Authentication
 - Supabase Auth (email/password or magic link)
-- Role stored in `profiles.role_code` ∈ {hq_admin, power_user, manufacturer, warehouse, distributor, shop}
+- User role stored in `profiles.role_code` ∈ {hq_admin, power_user, manufacturer, warehouse, distributor, shop}
 
 ### Routing
-- Root `/` **redirects to `/login`**
-- After login, route by role to a role-specific dashboard
+- Root **`/` redirects to `/login`**
+- After login, route to role-specific dashboard
+
+### Header UI (always visible)
+- Left: **Serapod2u** brand
+- Right: **Avatar menu** (shows current user avatar/name/role). Dropdown items:
+  - **My Profile** (edit profile data)
+  - **Preferences** (theme/language, personal notification toggles)
+  - **Logout**
+> Logout is **outside Settings** and accessible here.
+
+*(Optional)* Sidebar header may display “Signed in as {name} ({role})”.
 
 ### Fast Login (dev only)
 - Controlled by `NEXT_PUBLIC_ENABLE_FAST_LOGIN=true`
-- `/login` shows a **Fast Login** panel:
-  - Buttons: “Sign in as HQ Admin / Power User / Manufacturer / Warehouse / Distributor / Shop”
-  - On click:
-    - If test user for that role doesn’t exist, seed it (email `dev+role@serapod2u.local`)
-    - Sign in with preset credentials (dev-only)
-- Clear banner: “FAST LOGIN (DEV ONLY)”
-- Never enabled on staging/production
+- `/login` shows a **Fast Login** panel with buttons for each role
+- On click:
+  - Seed a dev user for that role if missing (e.g., `dev+role@serapod2u.local`)
+  - Sign in with preset dev credentials
+- Banner: “FAST LOGIN (DEV ONLY)”
+- Must be **disabled** on staging/production
 
 ---
 
@@ -54,13 +63,14 @@ Single source of truth for the new repo + new Supabase project.
 
 ### Manufacturer ↔ Product
 - **1 → many**: one Manufacturer can produce many Products
-- Each Product has `manufacturer_id` (required, immutable once variants/orders exist)
+- Each Product has `manufacturer_id` (required)
+- **Recommended**: once a Product has Variants or Orders, `manufacturer_id` becomes **immutable** (block change)
 
 ### Strict Uniqueness (DB-first + UI)
-- **Product**: **unique** on  
+- **Product** (strict): **unique** on  
   `(category_id, brand_id, group_id, sub_group_id, manufacturer_id)`  
-  → Only **one** Product per Brand+Group+Sub-Group+Manufacturer inside a Category
-  → If Brand already used for that combo, user must **create a new Group/Sub-Group** (or pick another Manufacturer)
+  → Only **one** Product per Brand+Group+Sub-Group+Manufacturer inside a Category  
+  → If Brand already used for that combo, user must **create a new Group/Sub-Group** (or choose another Manufacturer)
 
 - **Variant**:
   - **SKU** is **system-generated** (read-only), **unique** globally
@@ -70,20 +80,19 @@ Single source of truth for the new repo + new Supabase project.
 - **Case-insensitive + trimmed** comparisons: generated `*_ci` columns (e.g., `lower(trim(name))`) back unique indexes
 
 ### SKU Generation (simple & stable)
-- Auto-generated in a DB trigger on insert
-- Example format (subject to implementation):  
-  `V-ABC-G-S-001-007`
-  - `V/N` (Category), 3 letters of Brand, 1–2 letters Group/Sub-Group, product seq, variant seq
-- If generation fails (rare), user sees:  
-  **“We couldn’t generate a SKU. Please try again.”**
+- Auto-generated in a DB trigger on insert (race-safe)
+- Example format: `V-ABC-G-S-001-007`
+  - `V/N` (Category), first 3 letters of Brand, 1–2 letters Group/Sub-Group, product seq, variant seq
+- On failure (rare): show **“We couldn’t generate a SKU. Please try again.”**
 
 ### Create Product — UX
 - Cascading selects: **Category → Group → Sub-Group → Manufacturer → Brand**
-- If Brand is already used for this Group/Sub-Group & Manufacturer:  
-  - Brand option appears **greyed** with tooltip:  
+- If Brand already used for this Group/Sub-Group & Manufacturer:
+  - Brand option is **greyed** with tooltip:  
     **“Brand already used with this Group/Sub-Group & Manufacturer. Create a new Group/Sub-Group to use it again.”**
 - Product name (display) & image
-- If Manufacturer missing: toast **“Please create the Manufacturer first.”** (quick-add dialog for HQ Admin)
+- If Manufacturer missing: toast **“Please create the Manufacturer first.”**  
+  (HQ Admin gets Quick-Add dialog)
 
 ### Create Variant — UX
 - Cascading selects: **Category → Brand → Group → Sub-Group → Product**
@@ -99,7 +108,7 @@ Single source of truth for the new repo + new Supabase project.
 ## 4) Order Management
 
 ### Flow
-1. **Create Order** (HQ Admin): header (Manufacturer, MYR, units_per_box default 100, buffer_pct default 10, use_rfid), lines (by **Variant (SKU)**: qty, unit price)
+1. **Create Order** (HQ Admin): header (Manufacturer, MYR, `units_per_box` default 100, `buffer_pct` default 10, `use_rfid`), lines (by **Variant (SKU)**: qty, unit price)
 2. **Approval** (Power User): on approve → system:
    - Creates **Batch** (status `open`, `Batch ID = Order ID`)
    - Creates **PO** (status `sent`) with lines; generates **PO PDF** in bucket `po-docs`
@@ -209,11 +218,15 @@ Statuses: Draft → Submitted → Pending Approval → Approved/Partially Approv
 └─ Shops
 
 🔔 Notifications
-👤 My Profile
-⚙️ Settings (includes Danger Zone)
+⚙️ Settings
+├─ Profile & Preferences (page is also reachable from avatar menu)
+├─ Notification Preferences (Email / WhatsApp / Push)
+└─ Danger Zone (HQ Admin & Power User only)
 
 markdown
 Copy code
+
+> **Logout is NOT here.** It’s in the **top-right avatar menu**.
 
 ---
 
@@ -221,26 +234,25 @@ Copy code
 - RLS by `auth.uid()` + `profiles.role_code`
 - Master Data:
   - HQ Admin: full
-  - Power User: read-only (except **Danger Zone** access)
+  - Power User: read-only (plus **Danger Zone** access)
   - Distributor/Shop: read-only catalog
-- Order/PO/Allocations per role matrix
-- **Audit logs** for destructive & critical actions
+- Orders/PO/Allocations per role matrix
+- **Audit logs** for destructive & critical actions (incl. Danger Zone, approvals)
 
 ---
 
 ## 14) 🔴 Danger Zone — Clear Master Data (keep Categories)
-
 Purpose: wipe master data during testing/migration while **keeping** `product_categories` rows **Vape** & **Non-Vape**.
 
 - **Access:** HQ Admin, Power User (re-auth required)
 - **UI:** Settings → Danger Zone → red panel; two confirmations:
   1) Checkbox: “I understand this will delete all master data except Categories”
   2) Type `DELETE ALL`
-- **Deletes (in a transaction, in order):**
+- **Deletes (transaction, in order):**
   - `product_variants`, `products`, `product_subgroups`, `product_groups`, `brands`
   - `manufacturers`, `distributors`, `shops`
   - `lucky_draw_campaigns`
-  - (Rewards config/data: default **keep** balances/history; can add a dev toggle later)
+  - (Rewards config/data: default **keep** balances/history; optional dev toggle later)
 - **Preserves:**
   - `product_categories` (re-seed Vape/Non-Vape idempotently)
   - Orders/POs/Invoices/Payments/Receipts, scans, allocations, audit logs, auth users
@@ -258,10 +270,12 @@ Purpose: wipe master data during testing/migration while **keeping** `product_ca
 
 ---
 
-## 16) Acceptance (Master Data & Auth)
+## 16) Acceptance (Master Data, Auth & Header)
 - **Product** creation enforces Manufacturer link + strict uniqueness (combo with Sub-Group)
 - **Variant** creation blocks duplicate flavor/nic/pack; **SKU generated** and shown read-only
 - **If Manufacturer missing** → toast “Please create the Manufacturer first.”
 - **If Brand used in this Group/Sub-Group & Manufacturer** → brand disabled + tooltip
 - **All errors** are human-friendly (no DB jargon)
-- `/` redirects to `/login`; **Fast Login** (dev only) works for all roles
+- `/` redirects to `/login`
+- **Top-right avatar menu** provides **My Profile**, **Preferences**, and **Logout**
+- **Fast Login** (dev only) works for all roles
